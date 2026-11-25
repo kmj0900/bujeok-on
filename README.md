@@ -5,10 +5,11 @@
 ## 목표
 - **필수**: 로컬 2인 대전, 기본 규칙 기반 AI 대전(쉬움·보통), 깊은 숲 수련장 1개, 배포 가능한 완성 게임.
 - **선택**: 능력 두루마리 3종, 폭포 계곡·바위산 맵(달빛 사원은 제외), 효과음·애니메이션, AI 고도화.
-- **제외**: 온라인 멀티플레이, 로그인, 데이터베이스, 서버 랭킹, 복잡한 인술.
+- **포함(이 폴더는 온라인 버전)**: 방 코드로 두 사람이 각자 브라우저에서 1:1 대결, 같은 방에서 맵을 바꿔 가며 이어 하기. 입력만 주고받는 락스텝 방식이라 서버는 입력을 중계만 하고 게임 규칙은 모른다.
+- **제외**: 로그인, 데이터베이스, 서버 랭킹, 복잡한 인술. (로컬 2인·AI 대전만 하는 정적 사이트 버전은 별도 저장소 `bujeok`)
 
 ## 기술 스택
-HTML5 / CSS3 / Vanilla JavaScript (ES Modules) / Canvas 2D. GitHub + Render Static Site. 별도 서버 없음.
+HTML5 / CSS3 / Vanilla JavaScript (ES Modules) / Canvas 2D. Node.js + `ws`(WebSocket 중계 서버), GitHub + Render Web Service(`bujeok-online`). 실행은 `npm install` 후 `npm start`, 테스트는 `npm test`.
 
 ## 문서 읽는 순서
 1. `AGENTS.md`: AI 코딩 도구의 프로젝트 작업 규칙

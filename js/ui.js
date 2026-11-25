@@ -177,7 +177,6 @@ export function drawPauseMenu(ctx, index) {
 }
 
 const REASON_TEXT = {
-  elimination: '상대가 탈락했다',
   timeout: '시간 종료',
   'timeout-hp': '시간 종료 · 체력 비교',
   'timeout-none': '시간 종료',
