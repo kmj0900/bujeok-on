@@ -1,0 +1,45 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #1d2b1f; color: #f2e9d0; font-family: "Malgun Gothic", sans-serif; }
+/* 화면 폭: 720px 이하, 창 높이에 맞춰 줄어들어 위아래가 잘리지 않는다(맵 비율 480:416 유지) */
+#app { --w: min(720px, calc(100vw - 16px), calc((100vh - 200px) * 480 / 416)); display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100%; gap: 6px; padding: 8px; }
+h1 { margin: 0; font-size: 20px; color: #fff0b8; text-shadow: 2px 2px 0 #1d1208; }
+#game { width: var(--w); aspect-ratio: 480 / 416; image-rendering: pixelated; border: 4px solid #5b3a1e; background: #000; }
+
+/* ---- 정보창: [얼굴] [하트 / 능력치] 두 장 + 가운데 시간. 메뉴 화면에서는 비어 숨는다 ---- */
+#hud { display: flex; justify-content: space-between; align-items: stretch; width: var(--w); gap: 8px; font-weight: bold; }
+#hud > span { display: flex; align-items: center; gap: 8px; padding: 4px 9px; border: none; border-radius: 4px; text-shadow: 1px 1px 0 #1d1208; position: relative; }
+#hud > span:empty { visibility: hidden; }
+#hud-p1 { background: #6b3b2b; box-shadow: inset 0 3px 0 #a85a44, inset 0 -3px 0 #3f1f16; }  /* 흑영: 붉은 기운 */
+#hud-p2 { background: #44602f; box-shadow: inset 0 3px 0 #6f9a4c, inset 0 -3px 0 #243a18; flex-direction: row-reverse; }  /* 녹림: 초록 기운(얼굴은 바깥쪽) */
+#hud-time { flex: 0 0 auto; align-self: center; justify-content: center; min-width: 84px; padding: 6px 12px; border: 3px solid #2a1a0c; background: #6e4620; box-shadow: inset 0 3px 0 #a8723a, inset 0 -3px 0 #4a2e14; color: #fff0b8; font-size: 30px; line-height: 1; letter-spacing: 1px; }
+#hud-time.low { color: #fff; background: #a3261c; box-shadow: inset 0 3px 0 #d9584a, inset 0 -3px 0 #6b1810; animation: lowtime 0.8s steps(2) infinite; }
+@keyframes lowtime { 50% { background: #5e140e; } }
+
+.face { flex: 0 0 52px; height: 40px; background-size: 256px 256px; background-position: -9px -2px; background-repeat: no-repeat; image-rendering: pixelated; background-color: rgba(0, 0, 0, 0.25); border: 2px solid rgba(0, 0, 0, 0.45); border-radius: 4px; }
+.face-p1 { background-image: url(assets/sprites/ninja_black.png); }
+.face-p2 { background-image: url(assets/sprites/ninja_green.png); }
+.face.out { filter: grayscale(1) brightness(0.55); }
+.info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.hearts { display: flex; gap: 1px; font-size: 19px; line-height: 1; height: 20px; align-items: center; }
+.heart { font-style: normal; color: #ff6a5a; text-shadow: 0 2px 0 #4a0f0a; }
+.heart.lost { color: #3d1e1a; text-shadow: none; }
+#hud-p2 .heart { color: #8cf27a; text-shadow: 0 2px 0 #123a10; }
+#hud-p2 .heart.lost { color: #1b3319; }
+.tag { font-size: 16px; color: #fff0b8; letter-spacing: 1px; }
+.stats { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.stats span { display: inline-flex; align-items: center; gap: 2px; }
+.ic { display: inline-block; width: 20px; height: 20px; background: url(assets/sprites/items.png) no-repeat; background-size: 60px 20px; image-rendering: pixelated; }
+.ic-speed { background-position: 0 0; } .ic-range { background-position: -20px 0; } .ic-bomb { background-position: -40px 0; }
+.stats b { font-weight: bold; min-width: 10px; }
+.ai { position: absolute; top: -9px; right: 6px; padding: 0 5px; font-size: 11px; background: #1d1208; border: 1px solid #f2e9d0; border-radius: 3px; color: #ffe9a8; }
+
+#help { margin: 0; font-size: 12px; display: flex; gap: 6px 14px; flex-wrap: wrap; justify-content: center; max-width: var(--w); color: #e6dcc0; }
+kbd { font-family: inherit; font-size: 11px; padding: 0 4px; background: #3a2a18; border: 1px solid #7a5a34; border-bottom-width: 2px; border-radius: 3px; color: #fff0b8; }
+#status { margin: 0; font-size: 12px; opacity: 0.8; text-align: center; }
+
+/* 온라인 대전: 방 코드 입력 */
+#join-panel { position: fixed; transform: translate(-50%, -50%); z-index: 5; display: flex; gap: 8px; align-items: center; color: #f2e9d0; font-size: 14px; }
+#join-panel[hidden] { display: none; }
+#join-code { width: 5em; font: bold 26px "Malgun Gothic", sans-serif; letter-spacing: 0.25em; text-align: center; text-transform: uppercase; padding: 4px 6px; background: #2a1a0c; color: #fff4c2; border: 2px solid #8a5a2b; border-radius: 4px; }
+#join-btn { font: bold 14px "Malgun Gothic", sans-serif; padding: 6px 14px; background: #8a5a2b; color: #fff4c2; border: 2px solid #2a1a0c; border-radius: 4px; cursor: pointer; }
+#join-btn:hover { background: #c98b43; }

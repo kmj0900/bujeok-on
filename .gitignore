@@ -1,0 +1,8 @@
+# 정리 대기 폴더(미리보기·시도 흔적). 배포에 필요 없다.
+_to_delete/
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+
+__pycache__/

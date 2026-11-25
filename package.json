@@ -1,0 +1,17 @@
+{
+  "name": "bujeok-online",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "부적소동 온라인 대전(실험 브랜치). 정적 파일 + WebSocket 입력 중계 서버.",
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node tests/test_determinism.mjs && node tests/test_online.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ws": "^8.23.0"
+  }
+}
