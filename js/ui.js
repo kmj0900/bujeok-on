@@ -23,7 +23,7 @@ export const SCREENS = Object.freeze({
   rematchHost: { items: ['맵 바꾸기', '준비 완료', '방 나가기'], top: 266 },
   rematchGuest: { items: ['준비 완료', '방 나가기'], top: 266 },
   map: { items: [...MAP_CHOICES.map((m) => m.label), '뒤로'], top: 154 }, // 버튼 4개(맵 3 + 뒤로)에 맞춰 올렸다
-  mode: { items: ['로컬 2인 대전', 'AI 대전 · 쉬움', 'AI 대전 · 보통', '뒤로'], top: 154 }, // 버튼 4개에 맞춰 올렸다
+  mode: { items: ['로컬 2인 대전', '1인 대전 · 쉬움', '1인 대전 · 보통', '뒤로'], top: 154 }, // 버튼 4개에 맞춰 올렸다
   pause: { items: ['계속하기', '다시 시작', '메인 화면'], top: 178 },
   result: { items: ['다시 대결', '메인 화면'], top: 240 },
 });
@@ -158,7 +158,7 @@ export function drawMapMenu(ctx, sprites, index) {
   label(ctx, '↑ ↓ 선택 · Enter 확인 · Esc 뒤로', W / 2, 392, 12, '#bdb59c');
 }
 
-const MODE_HINT = ['한 키보드로 둘이서 대결', '흑영(컴퓨터) · 느긋한 AI (처음이라면)', '흑영(컴퓨터) · 빠르고 공격적인 AI', ''];
+const MODE_HINT = ['한 키보드로 둘이서 대결', '흑영(컴퓨터) · 느긋한 상대 (처음이라면)', '흑영(컴퓨터) · 빠르고 공격적인 상대', ''];
 
 export function drawModeMenu(ctx, sprites, index, mapName = '') {
   const W = ctx.canvas.width;

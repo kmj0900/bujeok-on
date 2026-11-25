@@ -95,7 +95,7 @@ try {
     input.clear();
     acc = 0;
     lastPhase = game.phase;
-    status.textContent = `${mode === 'ai' ? (aiLevel === 'easy' ? 'AI 대전(쉬움)' : 'AI 대전(보통)') : '로컬 2인'} | ${map.def.name} | 시드 ${map.seed} | 상자 ${map.crateCount}/${map.candidateCount}칸`;
+    status.textContent = `${mode === 'ai' ? (aiLevel === 'easy' ? '1인 대전(쉬움)' : '1인 대전(보통)') : '로컬 2인'} | ${map.def.name} | 시드 ${map.seed} | 상자 ${map.crateCount}/${map.candidateCount}칸`;
     console.log('map loaded', { mode, seed: map.seed, crates: map.crateCount, candidates: map.candidateCount });
   }
   function startGame(newMode, level = 'normal') {
