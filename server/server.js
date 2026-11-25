@@ -33,7 +33,9 @@ function serveStatic(req, res) {
 }
 
 export function createServer({ port = 0, host = '0.0.0.0' } = {}) {
-  const rooms = new Map(); // code -> { code, mapId, players: [ws|null, ws|null], started }
+  // 방 상태(phase): waiting(상대 기다림) → starting(지연 측정 중) → playing(판 진행) → result(결과, 한 판 더 가능) → starting ...
+  // again[slot]: 결과 화면에서 '한 판 더'를 누른 사람. startId: 지연 측정 도중 상황이 바뀌면 이전 측정 결과를 버리기 위한 번호.
+  const rooms = new Map(); // code -> { code, mapId, players: [ws|null, ws|null], phase, again, startId }
   const httpServer = http.createServer((req, res) => {
     if (req.url === '/health') { res.writeHead(200).end('ok'); return; }
     serveStatic(req, res);
@@ -55,6 +57,8 @@ export function createServer({ port = 0, host = '0.0.0.0' } = {}) {
     const i = room.players.indexOf(ws);
     if (i >= 0) room.players[i] = null;
     const other = room.players.find(Boolean);
+    room.startId++; room.again = [false, false]; // 진행 중이던 지연 측정과 '한 판 더' 표시는 무효
+    if (i === 1) room.phase = 'waiting'; // 입장자가 나가면 방을 다시 연다(같은 코드로 새 친구가 들어올 수 있다)
     if (other) send(other, { t: 'peer_left' });
     if (!room.players.some(Boolean)) rooms.delete(room.code); // 아무도 없으면 방 삭제
     else if (room.players[0] === null) { // 방장이 나가면 방을 닫는다(남은 사람도 내보낸다)
@@ -64,19 +68,22 @@ export function createServer({ port = 0, host = '0.0.0.0' } = {}) {
   // 한 사람과 서버 사이 왕복 시간을 여러 번 잰다. 응답이 하나도 없으면 null.
   function measureRtt(ws) {
     return new Promise((resolve) => {
-      const samples = []; let sent = 0, done = false;
-      ws.pongs = new Map();
-      const finish = () => { if (done) return; done = true; clearInterval(iv); clearTimeout(to); ws.pongs = null; resolve(samples.length ? samples : null); };
-      const sendOne = () => { const id = sent++, t0 = performance.now(); ws.pongs.set(id, () => { samples.push(performance.now() - t0); if (samples.length === PING_COUNT) finish(); }); send(ws, { t: 'ping', id }); };
+      const samples = [], mine = new Set(); let sent = 0, done = false;
+      ws.pongs ??= new Map(); ws.pingSeq ??= 0; // 같은 사람에게 측정이 겹쳐도(상대가 나갔다 새로 들어올 때) 서로 지우지 않게 번호는 계속 늘린다
+      const finish = () => { if (done) return; done = true; clearInterval(iv); clearTimeout(to); for (const id of mine) ws.pongs.delete(id); resolve(samples.length ? samples : null); };
+      const sendOne = () => { const id = ws.pingSeq++, t0 = performance.now(); sent++; mine.add(id); ws.pongs.set(id, () => { samples.push(performance.now() - t0); if (samples.length === PING_COUNT) finish(); }); send(ws, { t: 'ping', id }); };
       const iv = setInterval(() => { if (sent >= PING_COUNT) clearInterval(iv); else sendOne(); }, PING_GAP_MS);
       const to = setTimeout(finish, PING_TIMEOUT_MS);
       sendOne();
     });
   }
   async function start(room) {
-    room.started = true; // 측정하는 동안 다른 사람이 들어오지 못하게 먼저 잠근다
+    room.phase = 'starting'; // 측정하는 동안 다른 사람이 들어오지 못하게 먼저 잠근다
+    room.again = [false, false];
+    const token = ++room.startId;
     const [a, b] = await Promise.all(room.players.map(measureRtt));
-    if (!room.players.every((p) => p && p.readyState === 1)) return; // 측정 중 누가 나갔다
+    if (token !== room.startId || !room.players.every((p) => p && p.readyState === 1)) return; // 측정 중 누가 나갔다(방은 leave()가 이미 다시 열었다)
+    room.phase = 'playing';
     const { delay, oneWayMs } = chooseDelay(a, b);
     const seed = randomInt(1, 2 ** 31);
     room.players.forEach((p, slot) => send(p, { t: 'start', slot, mapId: room.mapId, seed, delay, ms: oneWayMs }));
@@ -96,7 +103,7 @@ export function createServer({ port = 0, host = '0.0.0.0' } = {}) {
           const mapId = Object.hasOwn(MAPS, m.mapId) ? m.mapId : 'forest';
           if (rooms.size >= MAX_ROOMS) return err(ws, 'server-full');
           const code = newCode(); if (!code) return err(ws, 'server-full');
-          const room = { code, mapId, players: [ws, null], started: false };
+          const room = { code, mapId, players: [ws, null], phase: 'waiting', again: [false, false], startId: 0 };
           rooms.set(code, room); ws.room = room; ws.slot = 0;
           return send(ws, { t: 'created', code, slot: 0, mapId });
         }
@@ -105,18 +112,37 @@ export function createServer({ port = 0, host = '0.0.0.0' } = {}) {
           const code = String(m.code ?? '').toUpperCase().trim();
           const room = rooms.get(code);
           if (!room) return err(ws, 'no-such-room');
-          if (room.players[1] || room.started) return err(ws, 'room-full');
+          if (room.players[1] || room.phase !== 'waiting') return err(ws, 'room-full');
           room.players[1] = ws; ws.room = room; ws.slot = 1;
           send(ws, { t: 'joined', code, slot: 1, mapId: room.mapId });
           send(room.players[0], { t: 'peer_joined' });
           return start(room); // 두 명이 모이면 바로 시작(맵은 방장이 정한 것)
         }
         case 'in': case 'hash': { // 상대에게 그대로 전달. 서버는 내용을 해석하지 않는다.
-          const room = ws.room; if (!room || !room.started) return;
+          const room = ws.room; if (!room || room.phase !== 'playing') return; // 판이 끝난 뒤 늦게 온 입력은 버린다(다음 판에 섞이지 않게)
           if (!Number.isInteger(m.tick) || m.tick < 0) return;
           const other = room.players[1 - ws.slot];
           if (m.t === 'in') return send(other, { t: 'in', tick: m.tick, a: m.a });
           return send(other, { t: 'hash', tick: m.tick, h: m.h });
+        }
+        case 'done': { // 내 화면에서 판이 끝났다. 서버는 규칙을 모르므로 클라이언트가 알려 준다. 먼저 끝낸 쪽 때문에 상대의 마지막 입력이 버려져도, 상대에게 필요한 입력은 이미 미리 보내져 있다.
+          const room = ws.room; if (!room || room.phase !== 'playing') return;
+          room.phase = 'result'; room.again = [false, false];
+          return;
+        }
+        case 'again': { // 결과 화면에서 한 판 더
+          const room = ws.room; if (!room || room.phase !== 'result') return;
+          room.again[ws.slot] = true;
+          send(room.players[1 - ws.slot], { t: 'peer_again' });
+          if (room.again[0] && room.again[1] && room.players[0] && room.players[1]) start(room);
+          return;
+        }
+        case 'map': { // 방장만 다음 판 맵을 바꾼다. 입장자의 준비는 풀리고, 방장은 준비된 것으로 본다.
+          const room = ws.room; if (!room || room.phase !== 'result' || ws.slot !== 0) return;
+          if (!Object.hasOwn(MAPS, m.mapId)) return err(ws, 'bad-map');
+          room.mapId = m.mapId; room.again = [true, false];
+          for (const p of room.players) send(p, { t: 'map', mapId: room.mapId });
+          return;
         }
         case 'pong': { const f = ws.pongs && ws.pongs.get(m.id); if (f) { ws.pongs.delete(m.id); f(); } return; }
         case 'leave': return leave(ws);

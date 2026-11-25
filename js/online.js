@@ -6,6 +6,7 @@ const ERROR_TEXT = {
   'already-in-room': '이미 방에 들어와 있다',
   'connect-failed': '서버에 연결하지 못했다',
   'bad-code': '방 코드는 4글자다',
+  'bad-map': '그런 수련장은 없다',
 };
 export const errorText = (code) => ERROR_TEXT[code] ?? '알 수 없는 오류가 생겼다';
 
@@ -13,7 +14,7 @@ export function defaultUrl(loc = globalThis.location) {
   return `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${loc.host}`;
 }
 
-// handlers: onCreated(m), onJoined(m), onStart(m), onPeerLeft(), onError(code), onClose()
+// handlers: onCreated(m), onJoined(m), onStart(m), onPeerJoined(), onPeerLeft(), onPeerAgain(), onMap(m), onError(code), onClose()
 export function createOnline({ url = defaultUrl(), WebSocketImpl = globalThis.WebSocket, ...handlers } = {}) {
   let ws = null, lockstep = null, opened = false, leaving = false;
   const api = {
@@ -35,7 +36,10 @@ export function createOnline({ url = defaultUrl(), WebSocketImpl = globalThis.We
             case 'in': lockstep?.receiveInput(m.tick, m.a); break;
             case 'hash': lockstep?.receiveHash(m.tick, m.h); break;
             case 'ping': api.send({ t: 'pong', id: m.id }); break;
+            case 'peer_joined': handlers.onPeerJoined?.(); break;
             case 'peer_left': handlers.onPeerLeft?.(); break;
+            case 'peer_again': handlers.onPeerAgain?.(); break;
+            case 'map': handlers.onMap?.(m); break;
             case 'error': handlers.onError?.(m.code); break;
           }
         };
@@ -48,6 +52,9 @@ export function createOnline({ url = defaultUrl(), WebSocketImpl = globalThis.We
       if (c.length !== 4) { handlers.onError?.('bad-code'); return; }
       await api.connect(); api.send({ t: 'join', code: c });
     },
+    done() { api.send({ t: 'done' }); },            // 내 화면에서 판이 끝났다
+    again() { api.send({ t: 'again' }); },          // 결과 화면에서 한 판 더
+    setMap(mapId) { api.send({ t: 'map', mapId }); }, // 방장만: 다음 판 맵 바꾸기
     leave() { leaving = true; if (ws) { api.send({ t: 'leave' }); try { ws.close(); } catch { /* 이미 닫힘 */ } } },
   };
   return api;

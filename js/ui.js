@@ -19,7 +19,9 @@ export const SCREENS = Object.freeze({
   lobby: { items: ['방 나가기'], top: 300 },
   join: { items: ['뒤로'], top: 330 },
   notice: { items: ['메인 화면'], top: 270 },
-  resultOnline: { items: ['메인 화면'], top: 240 },
+  resultOnline: { items: ['다시 대결', '메인 화면'], top: 240 },
+  rematchHost: { items: ['맵 바꾸기', '방 나가기'], top: 300 },
+  rematchGuest: { items: ['준비 완료', '방 나가기'], top: 300 },
   map: { items: [...MAP_CHOICES.map((m) => m.label), '뒤로'], top: 154 }, // 버튼 4개(맵 3 + 뒤로)에 맞춰 올렸다
   mode: { items: ['로컬 2인 대전', 'AI 대전 · 쉬움', 'AI 대전 · 보통', '뒤로'], top: 154 }, // 버튼 4개에 맞춰 올렸다
   pause: { items: ['계속하기', '다시 시작', '메인 화면'], top: 178 },
@@ -248,7 +250,21 @@ export function drawWaiting(ctx) {
   label(ctx, '상대를 기다리는 중...', W / 2, 24, 16, '#ffe9a8');
 }
 
-// 온라인 결과: 다시 대결 없이 메인으로만 나간다(재대결은 다음 단계)
+// 온라인 결과: 다시 대결(같은 방에서 계속) 또는 메인 화면
 export function drawOnlineResult(ctx, game, index) {
   drawResultScreen(ctx, game, index, 'resultOnline');
+}
+
+// 결과 뒤 '다음 판 준비' 화면. info: { isHost, mapName, myReady, peerReady, note }
+export function drawRematch(ctx, sprites, index, info) {
+  const W = ctx.canvas.width;
+  backdrop(ctx, sprites, 0.45);
+  label(ctx, '다음 수련', W / 2, 100, 34, '#fff0b8');
+  woodBoard(ctx, 100, 124, W - 200, 130);
+  label(ctx, '다음 수련장', W / 2, 152, 14, '#ffe9a8', '#3a220e');
+  label(ctx, info.mapName || '', W / 2, 190, 28, '#fff4c2', '#3a220e');
+  label(ctx, `나: ${info.myReady ? '준비 완료' : '아직 준비 안 됨'}`, W / 2, 222, 14, info.myReady ? '#9be88a' : '#f2e9d0', '#3a220e');
+  label(ctx, `상대: ${info.peerReady ? '준비 완료' : '기다리는 중...'}`, W / 2, 244, 14, info.peerReady ? '#9be88a' : '#f2e9d0', '#3a220e');
+  if (info.note) label(ctx, info.note, W / 2, 282, 13, '#ffe9a8');
+  drawButtons(ctx, info.isHost ? 'rematchHost' : 'rematchGuest', index);
 }

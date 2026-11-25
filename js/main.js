@@ -7,7 +7,7 @@ import { createInput } from './input.js';
 import { createAI } from './ai.js';
 import { loadSprites } from './sprites.js';
 import { createSound } from './sound.js';
-import { SCREENS, MAP_CHOICES, screenRects, hitTest, wrapIndex, toCanvasPoint, drawMainMenu, drawMapMenu, drawModeMenu, drawPauseMenu, drawResultScreen, drawOnlineMenu, drawLobby, drawJoin, drawNotice, drawWaiting, drawOnlineResult } from './ui.js';
+import { SCREENS, MAP_CHOICES, screenRects, hitTest, wrapIndex, toCanvasPoint, drawMainMenu, drawMapMenu, drawModeMenu, drawPauseMenu, drawResultScreen, drawOnlineMenu, drawLobby, drawJoin, drawNotice, drawWaiting, drawOnlineResult, drawRematch } from './ui.js';
 import { createLockstep } from './lockstep.js';
 import { createOnline, errorText } from './online.js';
 
@@ -43,6 +43,7 @@ const startTime = tParam > 0 && tParam < 170 ? tParam : undefined;
 
 const MAX_FRAME_TIME = 0.25; // 프레임 복귀 시 누적 시간 상한
 const WAIT_SHOW = 0.5;       // 온라인: 상대 입력을 이만큼(초) 못 받으면 '기다리는 중' 표시
+const STALL_LIMIT = 20;      // 온라인: 상대 입력을 이만큼(초) 계속 못 받으면 연결이 끊긴 것으로 보고 알림
 const joinParam = (params.get('join') || '').toUpperCase(); // ?join=ABCD : 방 코드로 바로 입장(개발·시연용)
 const joinPanel = document.getElementById('join-panel');
 const joinCode = document.getElementById('join-code');
@@ -68,12 +69,14 @@ function formatTime(sec) {
 
 try {
   let map = null, game = null, ai = null;
-  let scene = modeParam ? 'game' : 'menu'; // 'menu' | 'map' | 'mode' | 'game' | 'online' | 'lobby' | 'join' | 'notice'
+  let scene = modeParam ? 'game' : 'menu'; // 'menu' | 'map' | 'mode' | 'game' | 'online' | 'lobby' | 'join' | 'notice' | 'rematch'
   let net = null, ls = null;               // 온라인: 서버 연결, 락스텝
   let onlineIntent = false;                // 맵 선택 화면이 '방 만들기'용인지
   let lobbyInfo = { code: '', text: '' };
   let noticeText = '', joinText = '';
   let stalled = 0;                         // 온라인: 상대 입력을 기다려 멈춘 시간(초)
+  let doneSent = false;                    // 온라인: 이번 판이 끝났다고 서버에 알렸는지
+  let rematch = { myReady: false, peerReady: false }; // 온라인: 결과 뒤 '한 판 더' 준비 상태
   let selectedMapId = MAPS[mapParam] ? mapParam : 'forest'; // 맵 선택 화면에서 고른 맵. 다시 대결해도 유지되고, 메인 화면으로 나가면 다시 고른다
   let menuIndex = 0;
   let screenKey = null; // 현재 버튼 화면(바뀌면 선택을 첫 버튼으로)
@@ -117,9 +120,22 @@ try {
       onCreated: (m) => { lobbyInfo = { code: m.code, text: '친구에게 이 코드를 알려 주자', who: 0 }; status.textContent = `온라인 | 방 ${m.code}`; },
       onJoined: (m) => { lobbyInfo = { code: m.code, text: '입장했다. 곧 시작한다', who: 1 }; },
       onStart: startOnline,
-      onPeerLeft: () => { if (scene === 'game' && game && game.phase !== Phase.RESULT) showNotice('상대가 나갔다'); },
+      onPeerLeft: () => {
+        if (!net) return;
+        if (net.slot === 1) { showNotice('방장이 나가서 방이 닫혔다'); return; } // 방장이 나가면 서버가 방을 닫는다
+        // 방장: 방은 그대로 남는다. 같은 코드로 새 친구를 기다린다(시작 직전에 나간 경우도 같다)
+        ls = null; net.setLockstep(null); doneSent = false;
+        lobbyInfo = { code: net.code, text: '상대가 나갔다. 같은 코드로 새 친구를 기다린다', who: 0 };
+        scene = 'lobby'; input.clear(); status.textContent = `온라인 | 방 ${net.code}`;
+      },
+      onPeerJoined: () => { if (scene === 'lobby') lobbyInfo = { ...lobbyInfo, text: '친구가 들어왔다. 곧 시작한다' }; },
+      onPeerAgain: () => { rematch.peerReady = true; },
+      onMap: (m) => { // 방장이 다음 맵을 바꿨다. 입장자의 준비는 풀린다
+        if (MAPS[m.mapId]) selectedMapId = m.mapId;
+        if (net && net.slot === 1) rematch.myReady = false; else rematch.peerReady = false;
+      },
       onError: (code) => showNotice(errorText(code)),
-      onClose: () => { if (scene === 'lobby' || scene === 'game') showNotice('서버와 연결이 끊겼다'); },
+      onClose: () => { if (scene === 'lobby' || scene === 'game' || scene === 'rematch') showNotice('서버와 연결이 끊겼다'); },
     });
     return net;
   }
@@ -141,7 +157,8 @@ try {
     net.setLockstep(ls);
     scene = 'game';
     input.clear();
-    acc = 0; stalled = 0;
+    acc = 0; stalled = 0; doneSent = false;
+    rematch = { myReady: false, peerReady: false };
     lastPhase = game.phase;
     status.textContent = `온라인 | 방 ${net.code} | 나는 ${m.slot === 0 ? '1P 흑영' : '2P 녹림'} | ${map.def.name} | 입력 지연 ${m.delay}틱${m.ms != null ? `(전달 약 ${m.ms}ms)` : ''}`;
   }
@@ -165,6 +182,7 @@ try {
     if (scene === 'map') return 'map';
     if (scene === 'mode') return 'mode';
     if (scene === 'online' || scene === 'lobby' || scene === 'join' || scene === 'notice') return scene;
+    if (scene === 'rematch') return net && net.slot === 1 ? 'rematchGuest' : 'rematchHost';
     if (game && game.phase === Phase.PAUSED) return 'pause';
     if (game && game.phase === Phase.RESULT) return mode === 'online' ? 'resultOnline' : 'result';
     return null;
@@ -179,7 +197,20 @@ try {
       input.clear();
     } else if (screen === 'lobby') { leaveOnline(); scene = 'online'; input.clear(); }
     else if (screen === 'join') { scene = 'online'; input.clear(); }
-    else if (screen === 'notice' || screen === 'resultOnline') toMenu();
+    else if (screen === 'notice') toMenu();
+    else if (screen === 'resultOnline') {
+      if (i === 0 && net) { net.again(); rematch.myReady = true; scene = 'rematch'; status.textContent = `온라인 | 방 ${net.code}`; input.clear(); } // 같은 방에서 다음 판 준비
+      else toMenu();
+    } else if (screen === 'rematchHost') {
+      if (i === 0 && net) { // 맵을 다음 것으로 돌린다(깊은 숲 → 폭포 계곡 → 바위산 → ...)
+        const k = MAP_CHOICES.findIndex((m) => m.id === selectedMapId);
+        selectedMapId = MAP_CHOICES[(k + 1) % MAP_CHOICES.length].id;
+        rematch.peerReady = false; net.setMap(selectedMapId);
+      } else { leaveOnline(); scene = 'online'; input.clear(); }
+    } else if (screen === 'rematchGuest') {
+      if (i === 0 && net) { net.again(); rematch.myReady = true; }
+      else { leaveOnline(); scene = 'online'; input.clear(); }
+    }
     else if (screen === 'map') {
       if (i < MAP_CHOICES.length) {
         selectedMapId = MAP_CHOICES[i].id;
@@ -238,6 +269,7 @@ try {
     if (select) return activate(screen, menuIndex);
     if (screen === 'map' && esc) return activate('map', MAP_CHOICES.length); // 뒤로: 메인 화면(온라인이면 온라인 메뉴)
     if (screen === 'online' && esc) return activate('online', 2); // 뒤로: 메인 화면
+    if ((screen === 'rematchHost' || screen === 'rematchGuest') && esc) return activate(screen, 1); // 방 나가기
     if ((screen === 'lobby' || screen === 'join') && esc) return activate(screen, 0); // 방 나가기 / 뒤로
     if (screen === 'mode' && esc) return activate('mode', 3); // 뒤로: 맵 선택
     if (screen === 'pause' && (esc || pauseKey)) return activate('pause', 0); // 계속하기
@@ -276,10 +308,12 @@ try {
       if (want > 0 && did === 0) stalled += frameDt; else if (did > 0) stalled = 0; // 한 틱도 못 갈 때만 기다린 시간으로 센다
       if (did < want) acc = Math.min(acc, 0.1);
       for (const m of ls.outbox.splice(0)) net.send(m);
+      if (game.phase === Phase.RESULT && !doneSent) { doneSent = true; net.done(); } // 마지막 입력을 다 보낸 뒤에 판이 끝났다고 알린다
       for (const e of game.events) sound.play(e);
       game.events.length = 0;
       if (ls.desyncTick !== null) status.textContent = `화면이 어긋났다(틱 ${ls.desyncTick}). 이번 판은 믿을 수 없다`;
       if (game.phase !== lastPhase) { input.clear(); lastPhase = game.phase; }
+      if (stalled > STALL_LIMIT) showNotice('상대와 연결이 끊긴 것 같다'); // 오래 기다려도 입력이 오지 않는다
     } else if (scene === 'game') {
       if (input.consumePause() && game.phase === Phase.PLAYING) { pause(game); input.clear(); }
       // 사람과 AI가 같은 형태의 액션을 쓴다. 입력은 카운트다운·플레이 중에만 읽어 Enter/Space가 메뉴에 남도록 한다.
@@ -301,7 +335,10 @@ try {
     else if (scene === 'lobby') drawLobby(ctx, sprites, menuIndex, lobbyInfo);
     else if (scene === 'join') drawJoin(ctx, sprites, menuIndex, joinText);
     else if (scene === 'notice') drawNotice(ctx, sprites, menuIndex, noticeText);
-    else if (game) {
+    else if (scene === 'rematch') {
+      const host = !net || net.slot !== 1;
+      drawRematch(ctx, sprites, menuIndex, { isHost: host, mapName: MAPS[selectedMapId].name, myReady: rematch.myReady, peerReady: rematch.peerReady, note: host ? '맵 바꾸기를 누르면 다음 맵으로 바뀐다' : (rematch.myReady ? '방장이 맵을 바꾸면 다시 준비해야 한다' : '방장이 맵을 바꿨다. 준비 완료를 눌러 주자') });
+    } else if (game) {
       drawMap(ctx, map, sprites, performance.now() / 1000);
       drawItems(ctx, game, sprites);
       drawExplosions(ctx, game, sprites);

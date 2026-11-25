@@ -15,7 +15,7 @@ const server = await createServer({ port: 0, host: '127.0.0.1' });
 const url = `ws://127.0.0.1:${server.port}`;
 
 t('defaultUrl: http→ws, https→wss', defaultUrl({ protocol: 'http:', host: 'a:1' }) === 'ws://a:1' && defaultUrl({ protocol: 'https:', host: 'x.onrender.com' }) === 'wss://x.onrender.com');
-t('오류 코드마다 한글 문구가 있음', ['no-such-room', 'room-full', 'connect-failed', 'bad-code', 'server-full'].every((c) => errorText(c).length > 4) && errorText('???').length > 0);
+t('오류 코드마다 한글 문구가 있음', ['no-such-room', 'room-full', 'connect-failed', 'bad-code', 'server-full', 'bad-map'].every((c) => errorText(c).length > 4) && errorText('???').length > 0);
 
 // 연결 실패(아무도 안 듣는 포트)
 {
@@ -27,7 +27,7 @@ t('오류 코드마다 한글 문구가 있음', ['no-such-room', 'room-full', '
 
 // 방 만들기·입장·시작
 const A = { starts: [], peerLeft: 0, errors: [], closed: 0 }, B = { starts: [], peerLeft: 0, errors: [], closed: 0 };
-const mk = (S) => createOnline({ url, onCreated: (m) => { S.created = m; }, onJoined: (m) => { S.joined = m; }, onStart: (m) => S.starts.push(m), onPeerLeft: () => S.peerLeft++, onError: (c) => S.errors.push(c), onClose: () => S.closed++ });
+const mk = (S) => { S.agains = 0; S.maps = []; return createOnline({ url, onCreated: (m) => { S.created = m; }, onJoined: (m) => { S.joined = m; }, onStart: (m) => S.starts.push(m), onPeerLeft: () => S.peerLeft++, onPeerAgain: () => S.agains++, onMap: (m) => S.maps.push(m), onError: (c) => S.errors.push(c), onClose: () => S.closed++ }); };
 const a = mk(A), b = mk(B);
 await a.create('mountain');
 await waitFor(() => A.created);
@@ -57,6 +57,23 @@ t('2P 번호는 1', b.slot === 1 && B.starts[0].slot === 1);
   t('online.js 경유 락스텝: 두 쪽 상태 동일·어긋남 없음', stateHash(L[0].game) === stateHash(L[1].game) && L.every((s) => s.ls.desyncTick === null));
 }
 
+// 한 판 더·맵 바꾸기: online.js의 done/again/setMap과 peer_again/map 알림, 새 start
+{
+  const before = { a: A.starts.length, b: B.starts.length };
+  a.done(); b.done(); await sleep(50);
+  a.again();
+  await waitFor(() => B.agains === 1);
+  t('한쪽이 again을 보내면 상대의 onPeerAgain이 불림', B.agains === 1 && A.agains === 0);
+  a.setMap('forest');
+  await waitFor(() => A.maps.length && B.maps.length);
+  t('방장이 setMap하면 두 쪽 모두 onMap으로 새 맵을 받음', A.maps[0].mapId === 'forest' && B.maps[0].mapId === 'forest');
+  b.again();
+  await waitFor(() => A.starts.length > before.a && B.starts.length > before.b, 4000);
+  const s2 = A.starts.at(-1), s3 = B.starts.at(-1);
+  t('둘 다 again이면 같은 연결로 새 start(바뀐 맵·새 시드, 번호 유지)', s2.mapId === 'forest' && s3.mapId === 'forest' && s2.seed === s3.seed && s2.seed !== A.starts[0].seed && s2.slot === 0 && s3.slot === 1 && a.slot === 0 && b.slot === 1);
+  b.setMap('mountain'); await sleep(100);
+  t('입장자의 setMap은 무시되어 맵이 바뀌지 않음', A.maps.length === 1 && B.maps.length === 1);
+}
 // 나가기
 a.leave();
 await waitFor(() => B.peerLeft);
