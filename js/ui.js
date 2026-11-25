@@ -218,7 +218,8 @@ export function drawLobby(ctx, sprites, index, info) {
   woodBoard(ctx, 120, 130, W - 240, 90);
   label(ctx, '방 코드', W / 2, 160, 14, '#ffe9a8', '#3a220e');
   label(ctx, info.code || '····', W / 2, 205, 44, '#fff4c2', '#3a220e');
-  label(ctx, info.text || '', W / 2, 256, 15, '#f2e9d0');
+  label(ctx, info.text || '', W / 2, 246, 15, '#f2e9d0');
+  if (info.who === 0 || info.who === 1) label(ctx, info.who === 0 ? '흑영 닌자' : '녹림 닌자', W / 2, 280, 20, info.who === 0 ? '#ff9a80' : '#9be88a');
   drawButtons(ctx, 'lobby', index);
 }
 

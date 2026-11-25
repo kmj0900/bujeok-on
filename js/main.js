@@ -1,6 +1,6 @@
 import { MAPS } from './maps.js';
 import { loadMap, createRng } from './map.js';
-import { drawMap, drawItems, drawBombs, drawExplosions, drawPlayers, drawPopups, drawCountdown, drawStartBanner, drawHazardWarning, drawShuriken, drawCurrent, drawRockfall } from './renderer.js';
+import { drawMap, drawItems, drawBombs, drawExplosions, drawPlayers, drawPopups, drawCountdown, drawStartBanner, drawHazardWarning, drawShuriken, drawCurrent, drawRockfall, drawYouMarker, drawYouBanner } from './renderer.js';
 import { createGame, updateGame, pause, resume, Phase, STEP } from './game.js';
 import { MAX_HP } from './player.js';
 import { createInput } from './input.js';
@@ -49,7 +49,7 @@ const joinCode = document.getElementById('join-code');
 const joinBtn = document.getElementById('join-btn');
 
 // 정보창(2026-11-25): 얼굴 + 하트 4개(깎이면 어두운 하트) + 능력치(경공술·화약 범위·동시 부적 수, 아이템 아이콘과 숫자). 이름 글자는 없다. 값은 모두 코드가 만든 숫자·고정 문자열이다.
-function hudHtml(p, isAi) {
+function hudHtml(p, isAi, isMe = false) {
   const out = p.state === 'ELIMINATED';
   const main = out ? '<b class="tag">탈락</b>'
     : p.state === 'SEALED' ? '<b class="tag">봉인!</b>'
@@ -57,7 +57,8 @@ function hudHtml(p, isAi) {
   return `<div class="face face-p${p.id + 1}${out ? ' out' : ''}"></div>`
     + `<div class="info"><div class="hearts">${main}</div>`
     + `<div class="stats"><span><i class="ic ic-speed"></i><b>${p.speedLevel}</b></span><span><i class="ic ic-range"></i><b>${p.range}</b></span><span><i class="ic ic-bomb"></i><b>${p.maxBombs}</b></span></div></div>`
-    + (isAi ? '<b class="ai">AI</b>' : '');
+    + (isAi ? '<b class="ai">AI</b>' : '')
+    + (isMe ? '<b class="me">나</b>' : '');
 }
 
 function formatTime(sec) {
@@ -113,8 +114,8 @@ try {
   function makeNet() {
     leaveOnline();
     net = createOnline({
-      onCreated: (m) => { lobbyInfo = { code: m.code, text: '친구에게 이 코드를 알려 주자. 들어오면 바로 시작한다' }; status.textContent = `온라인 | 방 ${m.code}`; },
-      onJoined: (m) => { lobbyInfo = { code: m.code, text: '입장했다. 곧 시작한다' }; },
+      onCreated: (m) => { lobbyInfo = { code: m.code, text: '친구에게 이 코드를 알려 주자', who: 0 }; status.textContent = `온라인 | 방 ${m.code}`; },
+      onJoined: (m) => { lobbyInfo = { code: m.code, text: '입장했다. 곧 시작한다', who: 1 }; },
       onStart: startOnline,
       onPeerLeft: () => { if (scene === 'game' && game && game.phase !== Phase.RESULT) showNotice('상대가 나갔다'); },
       onError: (code) => showNotice(errorText(code)),
@@ -142,7 +143,7 @@ try {
     input.clear();
     acc = 0; stalled = 0;
     lastPhase = game.phase;
-    status.textContent = `온라인 | 방 ${net.code} | 나는 ${m.slot === 0 ? '1P 흑영' : '2P 녹림'} | ${map.def.name} | 시드 ${map.seed}`;
+    status.textContent = `온라인 | 방 ${net.code} | 나는 ${m.slot === 0 ? '1P 흑영' : '2P 녹림'} | ${map.def.name} | 입력 지연 ${m.delay}틱${m.ms != null ? `(전달 약 ${m.ms}ms)` : ''}`;
   }
   // 온라인에서는 어느 키 배치로 눌러도 내 닌자를 움직인다(WASD+Space 또는 방향키+Enter)
   function onlineAction() {
@@ -245,7 +246,8 @@ try {
 
   let last = performance.now();
   function frame(now) {
-    acc += Math.min((now - last) / 1000, MAX_FRAME_TIME);
+    const frameDt = Math.min((now - last) / 1000, MAX_FRAME_TIME);
+    acc += frameDt;
     last = now;
 
     if (input.consume('KeyM')) { const m = sound.toggle(); status.textContent = m ? '소리 꺼짐 (M으로 켜기)' : '소리 켜짐'; }
@@ -271,7 +273,8 @@ try {
       const want = Math.min(Math.floor(acc / STEP), 15);
       const did = ls.pump(game, onlineAction, want);
       acc -= did * STEP;
-      if (did < want) { stalled += (want - did) * STEP; acc = Math.min(acc, 0.1); } else if (did > 0) stalled = 0;
+      if (want > 0 && did === 0) stalled += frameDt; else if (did > 0) stalled = 0; // 한 틱도 못 갈 때만 기다린 시간으로 센다
+      if (did < want) acc = Math.min(acc, 0.1);
       for (const m of ls.outbox.splice(0)) net.send(m);
       for (const e of game.events) sound.play(e);
       game.events.length = 0;
@@ -308,17 +311,22 @@ try {
       drawPlayers(ctx, game, sprites);
       drawShuriken(ctx, game);
       drawRockfall(ctx, game, sprites); // 떨어지는 돌은 닌자 위
+      if (mode === 'online' && ls) drawYouMarker(ctx, game, ls.slot); // 내 닌자 머리 위 표시
       drawPopups(ctx, game);
       if (game.phase === Phase.COUNTDOWN) drawCountdown(ctx, game);
       else if (game.phase === Phase.PLAYING) drawStartBanner(ctx, game);
       else if (game.phase === Phase.PAUSED) drawPauseMenu(ctx, menuIndex);
       else if (game.phase === Phase.RESULT) { if (mode === 'online') drawOnlineResult(ctx, game, menuIndex); else drawResultScreen(ctx, game, menuIndex); }
+      if (mode === 'online' && ls && (game.phase === Phase.COUNTDOWN || game.phase === Phase.PLAYING)) drawYouBanner(ctx, game, ls.slot);
       if (mode === 'online' && game.phase !== Phase.RESULT && stalled > WAIT_SHOW) drawWaiting(ctx);
     }
 
     if (scene === 'game' && game) {
-      hudP1.innerHTML = hudHtml(game.players[0], mode === 'ai');
-      hudP2.innerHTML = hudHtml(game.players[1], false);
+      const me = mode === 'online' && ls ? ls.slot : -1; // 온라인에서 내가 누구인지
+      hudP1.innerHTML = hudHtml(game.players[0], mode === 'ai', me === 0);
+      hudP2.innerHTML = hudHtml(game.players[1], false, me === 1);
+      hudP1.classList.toggle('me', me === 0);
+      hudP2.classList.toggle('me', me === 1);
       hudTime.textContent = formatTime(game.timeLeft);
       hudTime.classList.toggle('low', game.phase === Phase.PLAYING && game.timeLeft <= 30); // 남은 30초부터 붉게 깜박
     } else {

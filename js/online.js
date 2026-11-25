@@ -34,6 +34,7 @@ export function createOnline({ url = defaultUrl(), WebSocketImpl = globalThis.We
             case 'start': handlers.onStart?.(m); break;
             case 'in': lockstep?.receiveInput(m.tick, m.a); break;
             case 'hash': lockstep?.receiveHash(m.tick, m.h); break;
+            case 'ping': api.send({ t: 'pong', id: m.id }); break;
             case 'peer_left': handlers.onPeerLeft?.(); break;
             case 'error': handlers.onError?.(m.code); break;
           }

@@ -43,3 +43,7 @@ kbd { font-family: inherit; font-size: 11px; padding: 0 4px; background: #3a2a18
 #join-code { width: 5em; font: bold 26px "Malgun Gothic", sans-serif; letter-spacing: 0.25em; text-align: center; text-transform: uppercase; padding: 4px 6px; background: #2a1a0c; color: #fff4c2; border: 2px solid #8a5a2b; border-radius: 4px; }
 #join-btn { font: bold 14px "Malgun Gothic", sans-serif; padding: 6px 14px; background: #8a5a2b; color: #fff4c2; border: 2px solid #2a1a0c; border-radius: 4px; cursor: pointer; }
 #join-btn:hover { background: #c98b43; }
+
+/* 온라인 대전: 내 쪽 정보창 강조 */
+#hud > span.me { outline: 3px solid #ffd45a; outline-offset: -3px; }
+.me { flex: 0 0 auto; padding: 1px 7px; border-radius: 10px; background: #ffd45a; color: #3a220e; font-size: 13px; text-shadow: none; }

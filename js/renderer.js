@@ -546,3 +546,56 @@ export function drawStartBanner(ctx, game) {
   if (game.time >= 0.6) return;
   text(ctx, '시작!', ctx.canvas.height / 2 + 14, 56, '#f9e44a');
 }
+
+// ---------- 온라인 대전: 내 닌자 표시 ----------
+
+// 내 닌자 머리 위에 위아래로 움직이는 화살표와 '나' 글자를 그린다.
+export function drawYouMarker(ctx, game, playerId) {
+  const p = game.players[playerId];
+  if (!p || p.state === 'ELIMINATED') return;
+  const ts = game.map.def.tileSize;
+  const v = visualPos(p);
+  const cx = Math.round(v.x * ts + ts / 2);
+  const bob = Math.round(Math.sin(performance.now() / 160) * 2);
+  const top = Math.round(v.y * ts) - 12 + bob;
+  const color = p.uiColor ?? '#ffd45a';
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.font = `bold 12px ${FONT}`;
+  ctx.textAlign = 'center';
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#1d1208';
+  ctx.strokeText('나', cx, top - 4);
+  ctx.fillStyle = '#fff4c2';
+  ctx.fillText('나', cx, top - 4);
+  ctx.beginPath(); // 아래를 가리키는 삼각형
+  ctx.moveTo(cx - 6, top);
+  ctx.lineTo(cx + 6, top);
+  ctx.lineTo(cx, top + 8);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.restore();
+}
+
+// 카운트다운과 시작 직후에 "당신은 ○○ 닌자" 안내를 크게 보여 준다.
+export function drawYouBanner(ctx, game, playerId) {
+  if (game.phase === 'PLAYING' && game.time >= 2.5) return;
+  const p = game.players[playerId];
+  if (!p) return;
+  const W = ctx.canvas.width, y = 272;
+  ctx.save();
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.fillRect(40, y - 30, W - 80, 42);
+  ctx.textAlign = 'center';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = '#1d1208';
+  ctx.font = `bold 24px ${FONT}`;
+  const msg = p.name; // 흑영 닌자 / 녹림 닌자
+  ctx.strokeText(msg, W / 2, y);
+  ctx.fillStyle = p.uiColor ?? '#fff4c2';
+  ctx.fillText(msg, W / 2, y);
+  ctx.restore();
+}

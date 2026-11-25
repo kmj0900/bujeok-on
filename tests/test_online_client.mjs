@@ -38,7 +38,7 @@ let badErr = null; const bad2 = createOnline({ url, onError: (c) => { badErr = c
 t('4글자가 아닌 코드는 서버에 가기 전에 bad-code', badErr === 'bad-code');
 
 await b.join(a.code.toLowerCase() + ' ');
-await waitFor(() => A.starts.length && B.starts.length);
+await waitFor(() => A.starts.length && B.starts.length, 4000);
 t('입장하면 두 쪽 모두 start를 받음(같은 맵·시드·입력 지연)', A.starts[0].seed === B.starts[0].seed && A.starts[0].mapId === 'mountain' && A.starts[0].delay === B.starts[0].delay && A.starts[0].delay >= 1);
 t('2P 번호는 1', b.slot === 1 && B.starts[0].slot === 1);
 

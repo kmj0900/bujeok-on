@@ -5,6 +5,7 @@ import { MAPS } from '../js/maps.js';
 import { loadMap, createRng } from '../js/map.js';
 import { createGame, updateGame } from '../js/game.js';
 import { createLockstep, stateHash, NO_ACTION, sanitizeAction } from '../js/lockstep.js';
+import { chooseDelay, DELAY_MIN, DELAY_MAX, DELAY_FALLBACK } from '../server/delay.js';
 
 let pass = 0, fail = 0;
 const t = (name, cond, extra = '') => { cond ? pass++ : fail++; console.log((cond ? 'PASS' : 'FAIL') + ' - ' + name + (cond ? '' : ' ' + extra)); };
@@ -13,7 +14,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 class Client {
   constructor(port) { this.msgs = []; this.waiters = []; this.closed = false; this.ws = new WebSocket(`ws://127.0.0.1:${port}`); this.ws.on('message', (d) => this.push(JSON.parse(d.toString()))); this.ws.on('close', () => { this.closed = true; }); }
   open() { return new Promise((r, j) => { this.ws.once('open', r); this.ws.once('error', j); }); }
-  push(m) { const i = this.waiters.findIndex((w) => w.type === m.t); if (i >= 0) this.waiters.splice(i, 1)[0].resolve(m); else this.msgs.push(m); this.onMessage?.(m); }
+  push(m) {
+    if (m.t === 'ping') { if (!this.noPong) setTimeout(() => this.ws.readyState === 1 && this.send({ t: 'pong', id: m.id }), this.pongDelay ?? 0); return; } // 서버의 지연 측정에 답한다(시험용으로 늦추거나 안 답할 수 있다)
+    const i = this.waiters.findIndex((w) => w.type === m.t); if (i >= 0) this.waiters.splice(i, 1)[0].resolve(m); else this.msgs.push(m); this.onMessage?.(m); }
   send(m) { this.ws.send(typeof m === 'string' ? m : JSON.stringify(m)); }
   next(type, ms = 2000) {
     const i = this.msgs.findIndex((m) => m.t === type);
@@ -37,7 +40,7 @@ const get = (p) => fetch(`http://127.0.0.1:${port}${p}`).then(async (r) => ({ st
   const created = await a.next('created');
   t('방 만들기: 4글자 코드, 1P(slot 0), 고른 맵', /^[A-Z2-9]{4}$/.test(created.code) && created.slot === 0 && created.mapId === 'waterfall');
   b.send({ t: 'join', code: created.code.toLowerCase() });
-  const [joined, sa, sb, pj] = await Promise.all([b.next('joined'), a.next('start'), b.next('start'), a.next('peer_joined')]);
+  const [joined, sa, sb, pj] = await Promise.all([b.next('joined'), a.next('start', 4000), b.next('start', 4000), a.next('peer_joined')]);
   t('입장: 2P(slot 1), 방장에게 입장 알림, 코드 대소문자 무시', joined.slot === 1 && pj.t === 'peer_joined');
   t('시작: 두 사람이 같은 맵·시드를 받고 번호는 0/1', sa.mapId === 'waterfall' && sb.mapId === 'waterfall' && sa.seed === sb.seed && Number.isInteger(sa.seed) && sa.slot === 0 && sb.slot === 1);
   c.send({ t: 'join', code: created.code });
@@ -69,6 +72,49 @@ const get = (p) => fetch(`http://127.0.0.1:${port}${p}`).then(async (r) => ({ st
   b.close();
 }
 
+// ---------- 입력 지연 자동 결정
+{
+  const fast = chooseDelay([2, 3, 2, 3, 2], [3, 2, 3, 2, 3]);
+  t('아주 빠른 연결: 최소값(4틱)', fast.delay === DELAY_MIN);
+  const far = chooseDelay([170, 165, 175, 170, 168], [150, 148, 155, 150, 152]);
+  t('왕복 170·150ms(해외 서버): 12~13틱', far.delay >= 12 && far.delay <= 13 && far.oneWayMs === 160, JSON.stringify(far));
+  const near = chooseDelay([80, 78, 84, 80, 79], [70, 72, 69, 71, 70]);
+  t('왕복 80·70ms(싱가포르 정도): 6~8틱', near.delay >= 6 && near.delay <= 8, JSON.stringify(near));
+  t('측정 실패(null)는 넉넉한 기본값', chooseDelay(null, [10]).delay === DELAY_FALLBACK && chooseDelay([], []).delay === DELAY_FALLBACK);
+  t('아주 느리면 상한(24틱)', chooseDelay([1500], [1500]).delay === DELAY_MAX);
+  t('흔들림이 크면 같은 평균에서도 더 크게 잡음', chooseDelay([100, 200, 100], [100, 200, 100]).delay > chooseDelay([100, 100, 100], [100, 100, 100]).delay);
+
+  // 서버가 실제로 재서 정한다: 각자 80ms씩 늦게 답하는 두 클라이언트
+  const a = await connect(port), b = await connect(port);
+  a.pongDelay = 80; b.pongDelay = 80;
+  a.send({ t: 'create' }); const { code } = await a.next('created');
+  const t0 = Date.now(); b.send({ t: 'join', code });
+  const [sa, sb] = await Promise.all([a.next('start', 4000), b.next('start', 4000)]);
+  t('서버가 측정한 값으로 시작: 두 사람 같은 지연, 80ms 왕복이면 6~9틱', sa.delay === sb.delay && sa.delay >= 6 && sa.delay <= 9, `delay=${sa.delay} ms=${sa.ms}`);
+  t('start에 전달 시간(ms)이 실려 옴', Number.isFinite(sa.ms) && sa.ms >= 60 && sa.ms <= 140, String(sa.ms));
+  t('측정 때문에 시작이 늦어도 2초 안', Date.now() - t0 < 2000, String(Date.now() - t0));
+  a.close(); b.close(); await sleep(100);
+
+  // 한쪽이 측정에 답하지 않으면 기본값으로 시작한다(멈추지 않음)
+  const c = await connect(port), d = await connect(port);
+  d.noPong = true;
+  c.send({ t: 'create' }); const r = await c.next('created');
+  const t1 = Date.now(); d.send({ t: 'join', code: r.code });
+  const [sc, sd] = await Promise.all([c.next('start', 4000), d.next('start', 4000)]);
+  t('응답 없는 쪽이 있어도 기본값(12틱)으로 시작', sc.delay === DELAY_FALLBACK && sd.delay === DELAY_FALLBACK && sc.ms === null, `delay=${sc.delay}`);
+  t('응답이 없어도 3초 안에 시작', Date.now() - t1 < 3000, String(Date.now() - t1));
+  c.close(); d.close(); await sleep(100);
+
+  // 측정 중에 한 명이 나가면 start를 보내지 않고 방이 정리된다
+  const e = await connect(port), f = await connect(port);
+  f.pongDelay = 300;
+  e.send({ t: 'create' }); const r2 = await e.next('created');
+  f.send({ t: 'join', code: r2.code }); await sleep(100); f.close();
+  await sleep(1500);
+  t('측정 중 상대가 나가면 start 없이 peer_left만', !e.msgs.some((m) => m.t === 'start') && e.msgs.some((m) => m.t === 'peer_left'), JSON.stringify(e.msgs));
+  e.close(); await sleep(100);
+}
+
 // ---------- 정적 파일 제공과 비공개 경로
 {
   const idx = await get('/'), js = await get('/js/game.js'), health = await get('/health');
@@ -89,7 +135,7 @@ async function onlineMatch({ mapId, delay, jitter, target, inputSeed }) {
   const a = await connect(port), b = await connect(port);
   a.send({ t: 'create', mapId }); const { code } = await a.next('created');
   b.send({ t: 'join', code });
-  const [sa, sb] = await Promise.all([a.next('start'), b.next('start')]);
+  const [sa, sb] = await Promise.all([a.next('start', 4000), b.next('start', 4000)]);
   const log = makeInputs(inputSeed, target + delay + 10);
   const peers = [[a, sa], [b, sb]].map(([c, s]) => {
     const p = { c, s, ls: createLockstep({ slot: s.slot, delay }), game: createGame(loadMap(MAPS[s.mapId], s.seed)), k: 0 };

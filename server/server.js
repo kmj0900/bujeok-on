@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { randomInt } from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { MAPS } from '../js/maps.js';
+import { chooseDelay } from './delay.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = new Set(['index.html', 'style.css', 'js', 'assets']); // 이 이름 아래만 공개한다(server, tests, docs, node_modules 등은 비공개)
@@ -13,7 +14,7 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 헷갈리는 글자(0/O, 1/I) 제외
 const MAX_MSG = 1024;       // 메시지 최대 바이트
 const MAX_ROOMS = 200;
-const INPUT_DELAY = Number(process.env.INPUT_DELAY) || 5; // 입력 지연 틱 수. 두 사람이 같아야 하므로 서버가 정한다
+const PING_COUNT = 5, PING_GAP_MS = 80, PING_TIMEOUT_MS = 1200; // 시작 전에 두 사람의 지연을 재는 횟수·간격·최대 대기
 const HEARTBEAT_MS = 25000; // Render 등 프록시가 놀고 있는 연결을 끊지 않게
 
 function serveStatic(req, res) {
@@ -60,10 +61,25 @@ export function createServer({ port = 0, host = '0.0.0.0' } = {}) {
       other.room = null; rooms.delete(room.code);
     }
   }
-  function start(room) {
-    room.started = true;
+  // 한 사람과 서버 사이 왕복 시간을 여러 번 잰다. 응답이 하나도 없으면 null.
+  function measureRtt(ws) {
+    return new Promise((resolve) => {
+      const samples = []; let sent = 0, done = false;
+      ws.pongs = new Map();
+      const finish = () => { if (done) return; done = true; clearInterval(iv); clearTimeout(to); ws.pongs = null; resolve(samples.length ? samples : null); };
+      const sendOne = () => { const id = sent++, t0 = performance.now(); ws.pongs.set(id, () => { samples.push(performance.now() - t0); if (samples.length === PING_COUNT) finish(); }); send(ws, { t: 'ping', id }); };
+      const iv = setInterval(() => { if (sent >= PING_COUNT) clearInterval(iv); else sendOne(); }, PING_GAP_MS);
+      const to = setTimeout(finish, PING_TIMEOUT_MS);
+      sendOne();
+    });
+  }
+  async function start(room) {
+    room.started = true; // 측정하는 동안 다른 사람이 들어오지 못하게 먼저 잠근다
+    const [a, b] = await Promise.all(room.players.map(measureRtt));
+    if (!room.players.every((p) => p && p.readyState === 1)) return; // 측정 중 누가 나갔다
+    const { delay, oneWayMs } = chooseDelay(a, b);
     const seed = randomInt(1, 2 ** 31);
-    room.players.forEach((p, slot) => send(p, { t: 'start', slot, mapId: room.mapId, seed, delay: INPUT_DELAY }));
+    room.players.forEach((p, slot) => send(p, { t: 'start', slot, mapId: room.mapId, seed, delay, ms: oneWayMs }));
   }
 
   wss.on('connection', (ws) => {
@@ -102,6 +118,7 @@ export function createServer({ port = 0, host = '0.0.0.0' } = {}) {
           if (m.t === 'in') return send(other, { t: 'in', tick: m.tick, a: m.a });
           return send(other, { t: 'hash', tick: m.tick, h: m.h });
         }
+        case 'pong': { const f = ws.pongs && ws.pongs.get(m.id); if (f) { ws.pongs.delete(m.id); f(); } return; }
         case 'leave': return leave(ws);
         default: return err(ws, 'unknown-type');
       }
