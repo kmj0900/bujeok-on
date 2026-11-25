@@ -8,7 +8,7 @@ import { createAI } from './ai.js';
 import { loadSprites } from './sprites.js';
 import { createSound } from './sound.js';
 import { SCREENS, MAP_CHOICES, screenRects, hitTest, wrapIndex, toCanvasPoint, drawMainMenu, drawMapMenu, drawModeMenu, drawPauseMenu, drawResultScreen, drawOnlineMenu, drawLobby, drawJoin, drawNotice, drawWaiting, drawOnlineResult, drawRematch } from './ui.js';
-import { createLockstep } from './lockstep.js';
+import { createLockstep, tickBudget, remainingAcc } from './lockstep.js';
 import { createOnline, errorText } from './online.js';
 
 const canvas = document.getElementById('game');
@@ -76,6 +76,7 @@ try {
   let noticeText = '', joinText = '';
   let stalled = 0;                         // 온라인: 상대 입력을 기다려 멈춘 시간(초)
   let doneSent = false;                    // 온라인: 이번 판이 끝났다고 서버에 알렸는지
+  let onlineStatus = '', netStats = { stalls: 0, maxMs: 0 }; // 온라인: 상태 줄 기본 문구, 멈춤 횟수·가장 길게 멈춘 시간(진단용)
   let rematch = { myReady: false, peerReady: false }; // 온라인: 결과 뒤 '한 판 더' 준비 상태
   let selectedMapId = MAPS[mapParam] ? mapParam : 'forest'; // 맵 선택 화면에서 고른 맵. 다시 대결해도 유지되고, 메인 화면으로 나가면 다시 고른다
   let menuIndex = 0;
@@ -130,9 +131,9 @@ try {
       },
       onPeerJoined: () => { if (scene === 'lobby') lobbyInfo = { ...lobbyInfo, text: '친구가 들어왔다. 곧 시작한다' }; },
       onPeerAgain: () => { rematch.peerReady = true; },
-      onMap: (m) => { // 방장이 다음 맵을 바꿨다. 입장자의 준비는 풀린다
+      onMap: (m) => { // 방장이 다음 맵을 바꿨다. 두 사람의 준비가 모두 풀린다
         if (MAPS[m.mapId]) selectedMapId = m.mapId;
-        if (net && net.slot === 1) rematch.myReady = false; else rematch.peerReady = false;
+        rematch.myReady = false; rematch.peerReady = false;
       },
       onError: (code) => showNotice(errorText(code)),
       onClose: () => { if (scene === 'lobby' || scene === 'game' || scene === 'rematch') showNotice('서버와 연결이 끊겼다'); },
@@ -157,10 +158,11 @@ try {
     net.setLockstep(ls);
     scene = 'game';
     input.clear();
-    acc = 0; stalled = 0; doneSent = false;
+    acc = 0; stalled = 0; doneSent = false; netStats = { stalls: 0, maxMs: 0 };
     rematch = { myReady: false, peerReady: false };
     lastPhase = game.phase;
     status.textContent = `온라인 | 방 ${net.code} | 나는 ${m.slot === 0 ? '1P 흑영' : '2P 녹림'} | ${map.def.name} | 입력 지연 ${m.delay}틱${m.ms != null ? `(전달 약 ${m.ms}ms)` : ''}`;
+    onlineStatus = status.textContent;
   }
   // 온라인에서는 어느 키 배치로 눌러도 내 닌자를 움직인다(WASD+Space 또는 방향키+Enter)
   function onlineAction() {
@@ -199,14 +201,15 @@ try {
     else if (screen === 'join') { scene = 'online'; input.clear(); }
     else if (screen === 'notice') toMenu();
     else if (screen === 'resultOnline') {
-      if (i === 0 && net) { net.again(); rematch.myReady = true; scene = 'rematch'; status.textContent = `온라인 | 방 ${net.code}`; input.clear(); } // 같은 방에서 다음 판 준비
+      if (i === 0 && net) { rematch.myReady = false; scene = 'rematch'; status.textContent = `온라인 | 방 ${net.code}`; input.clear(); } // 같은 방에서 다음 판 준비(준비 완료는 다음 수련 화면에서 따로 누른다)
       else toMenu();
     } else if (screen === 'rematchHost') {
       if (i === 0 && net) { // 맵을 다음 것으로 돌린다(깊은 숲 → 폭포 계곡 → 바위산 → ...)
         const k = MAP_CHOICES.findIndex((m) => m.id === selectedMapId);
         selectedMapId = MAP_CHOICES[(k + 1) % MAP_CHOICES.length].id;
-        rematch.peerReady = false; net.setMap(selectedMapId);
-      } else { leaveOnline(); scene = 'online'; input.clear(); }
+        rematch.myReady = false; rematch.peerReady = false; net.setMap(selectedMapId);
+      } else if (i === 1 && net) { net.again(); rematch.myReady = true; } // 준비 완료: 둘 다 누르면 시작
+      else { leaveOnline(); scene = 'online'; input.clear(); }
     } else if (screen === 'rematchGuest') {
       if (i === 0 && net) { net.again(); rematch.myReady = true; }
       else { leaveOnline(); scene = 'online'; input.clear(); }
@@ -269,7 +272,7 @@ try {
     if (select) return activate(screen, menuIndex);
     if (screen === 'map' && esc) return activate('map', MAP_CHOICES.length); // 뒤로: 메인 화면(온라인이면 온라인 메뉴)
     if (screen === 'online' && esc) return activate('online', 2); // 뒤로: 메인 화면
-    if ((screen === 'rematchHost' || screen === 'rematchGuest') && esc) return activate(screen, 1); // 방 나가기
+    if ((screen === 'rematchHost' || screen === 'rematchGuest') && esc) return activate(screen, SCREENS[screen].items.length - 1); // 방 나가기
     if ((screen === 'lobby' || screen === 'join') && esc) return activate(screen, 0); // 방 나가기 / 뒤로
     if (screen === 'mode' && esc) return activate('mode', 3); // 뒤로: 맵 선택
     if (screen === 'pause' && (esc || pauseKey)) return activate('pause', 0); // 계속하기
@@ -302,16 +305,19 @@ try {
       acc = 0;
     } else if (scene === 'game' && mode === 'online') {
       input.consumePause(); // 온라인에서는 일시정지 없음
-      const want = Math.min(Math.floor(acc / STEP), 15);
+      const want = tickBudget(acc, STEP); // 한 프레임에 많아야 2틱: 멈췄다 풀려도 한꺼번에 따라잡지 않는다
       const did = ls.pump(game, onlineAction, want);
-      acc -= did * STEP;
-      if (want > 0 && did === 0) stalled += frameDt; else if (did > 0) stalled = 0; // 한 틱도 못 갈 때만 기다린 시간으로 센다
-      if (did < want) acc = Math.min(acc, 0.1);
+      acc = remainingAcc(acc, did, STEP); // 밀린 시간은 2틱까지만 남긴다(느려질 뿐 확 움직이지 않는다)
+      if (want > 0 && did === 0) { // 한 틱도 못 갈 때만 기다린 시간으로 센다
+        if (stalled === 0) netStats.stalls++;
+        stalled += frameDt; netStats.maxMs = Math.max(netStats.maxMs, Math.round(stalled * 1000));
+      } else if (did > 0) stalled = 0;
       for (const m of ls.outbox.splice(0)) net.send(m);
       if (game.phase === Phase.RESULT && !doneSent) { doneSent = true; net.done(); } // 마지막 입력을 다 보낸 뒤에 판이 끝났다고 알린다
       for (const e of game.events) sound.play(e);
       game.events.length = 0;
-      if (ls.desyncTick !== null) status.textContent = `화면이 어긋났다(틱 ${ls.desyncTick}). 이번 판은 믿을 수 없다`;
+      const line = ls.desyncTick !== null ? `화면이 어긋났다(틱 ${ls.desyncTick}). 이번 판은 믿을 수 없다` : `${onlineStatus} | 멈춤 ${netStats.stalls}회(최대 ${netStats.maxMs}ms)`;
+      if (status.textContent !== line) status.textContent = line;
       if (game.phase !== lastPhase) { input.clear(); lastPhase = game.phase; }
       if (stalled > STALL_LIMIT) showNotice('상대와 연결이 끊긴 것 같다'); // 오래 기다려도 입력이 오지 않는다
     } else if (scene === 'game') {
@@ -337,7 +343,7 @@ try {
     else if (scene === 'notice') drawNotice(ctx, sprites, menuIndex, noticeText);
     else if (scene === 'rematch') {
       const host = !net || net.slot !== 1;
-      drawRematch(ctx, sprites, menuIndex, { isHost: host, mapName: MAPS[selectedMapId].name, myReady: rematch.myReady, peerReady: rematch.peerReady, note: host ? '맵 바꾸기를 누르면 다음 맵으로 바뀐다' : (rematch.myReady ? '방장이 맵을 바꾸면 다시 준비해야 한다' : '방장이 맵을 바꿨다. 준비 완료를 눌러 주자') });
+      drawRematch(ctx, sprites, menuIndex, { isHost: host, mapName: MAPS[selectedMapId].name, myReady: rematch.myReady, peerReady: rematch.peerReady, note: host ? '맵 바꾸기를 누르면 다음 맵으로 바뀌고 준비가 풀린다' : '방장이 맵을 바꾸면 준비가 풀린다' });
     } else if (game) {
       drawMap(ctx, map, sprites, performance.now() / 1000);
       drawItems(ctx, game, sprites);

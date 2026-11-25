@@ -4,6 +4,12 @@ import { updateGame } from './game.js';
 
 export const NO_ACTION = Object.freeze({ move: null, placeBomb: false, struggle: false });
 export const HASH_EVERY = 60; // 이 틱 수마다 상태 해시를 교환한다(1초)
+export const MAX_BACKLOG_TICKS = 2; // 한 프레임에 계산하는 틱·밀린 시간의 상한. 멈췄다 풀릴 때 한꺼번에 따라잡으면 닌자가 확 움직여 보인다
+
+// 이번 프레임에 계산할 틱 수(화면에 보이는 속도만 바꾸고 계산 결과는 바꾸지 않는다)
+export function tickBudget(acc, step) { return Math.min(Math.floor(acc / step), MAX_BACKLOG_TICKS); }
+// 계산한 뒤 남길 시간. 밀린 시간은 상한까지만 남기고 버린다: 게임이 잠깐 느려질 뿐 앞질러 가지 않는다.
+export function remainingAcc(acc, did, step) { return Math.min(acc - did * step, MAX_BACKLOG_TICKS * step); }
 
 // 상태 해시: 화면 전용(events, popups)과 정적 맵 정의는 제외한다.
 export function stateHash(game) {

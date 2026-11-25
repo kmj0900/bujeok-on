@@ -39,9 +39,9 @@ check('대결 방식 마지막 버튼 아래에 안내 문구(y=358) 자리가 �
 
 console.log('온라인 결과·다음 수련 화면');
 check('온라인 결과: 다시 대결·메인 화면 2개', SCREENS.resultOnline.items.length === 2 && SCREENS.resultOnline.items[0] === '다시 대결' && SCREENS.resultOnline.items[1] === '메인 화면');
-check('방장 화면: 맵 바꾸기·방 나가기', SCREENS.rematchHost.items.length === 2 && SCREENS.rematchHost.items[0] === '맵 바꾸기' && SCREENS.rematchHost.items.at(-1) === '방 나가기');
+check('방장 화면: 맵 바꾸기·준비 완료·방 나가기', SCREENS.rematchHost.items.length === 3 && SCREENS.rematchHost.items[0] === '맵 바꾸기' && SCREENS.rematchHost.items[1] === '준비 완료' && SCREENS.rematchHost.items.at(-1) === '방 나가기');
 check('입장자 화면: 준비 완료·방 나가기(맵 바꾸기 없음)', SCREENS.rematchGuest.items.length === 2 && SCREENS.rematchGuest.items[0] === '준비 완료' && !SCREENS.rematchGuest.items.includes('맵 바꾸기'));
-check('다음 수련 화면의 버튼은 안내 문구(y=282) 아래에 있다', screenRects('rematchHost')[0].y >= 290 && screenRects('rematchGuest')[0].y >= 290);
+check('다음 수련 화면의 버튼은 안내 문구(y=252) 아래에 있다', screenRects('rematchHost')[0].y >= 260 && screenRects('rematchGuest')[0].y >= 260);
 
 console.log('맵별 타일 시트');
 const fakeImg = (name) => ({ name, complete: true, naturalWidth: 320 });

@@ -130,17 +130,17 @@ export function createServer({ port = 0, host = '0.0.0.0' } = {}) {
           room.phase = 'result'; room.again = [false, false];
           return;
         }
-        case 'again': { // 결과 화면에서 한 판 더
+        case 'again': { // '준비 완료'(결과 뒤 다음 판 준비). 둘 다 눌러야 시작한다
           const room = ws.room; if (!room || room.phase !== 'result') return;
           room.again[ws.slot] = true;
           send(room.players[1 - ws.slot], { t: 'peer_again' });
           if (room.again[0] && room.again[1] && room.players[0] && room.players[1]) start(room);
           return;
         }
-        case 'map': { // 방장만 다음 판 맵을 바꾼다. 입장자의 준비는 풀리고, 방장은 준비된 것으로 본다.
+        case 'map': { // 방장만 다음 판 맵을 바꾼다. 맵이 바뀌면 두 사람의 준비가 모두 풀린다(둘 다 다시 '준비 완료'를 눌러야 시작).
           const room = ws.room; if (!room || room.phase !== 'result' || ws.slot !== 0) return;
           if (!Object.hasOwn(MAPS, m.mapId)) return err(ws, 'bad-map');
-          room.mapId = m.mapId; room.again = [true, false];
+          room.mapId = m.mapId; room.again = [false, false];
           for (const p of room.players) send(p, { t: 'map', mapId: room.mapId });
           return;
         }

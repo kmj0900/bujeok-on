@@ -86,7 +86,7 @@ async function startedRoom(mapId = 'forest') {
   a.close(); b.close(); await sleep(100);
 }
 
-// ---------- 맵 바꾸기
+// ---------- 맵 바꾸기: 입장자가 먼저 준비해도 방장이 맵을 고르기 전에는 시작하지 않는다
 {
   const { a, b, code } = await startedRoom('forest');
   a.send({ t: 'done' }); b.send({ t: 'done' }); await sleep(50);
@@ -95,15 +95,19 @@ async function startedRoom(mapId = 'forest') {
   a.send({ t: 'map', mapId: '없는맵' });
   t('없는 맵은 bad-map 오류', (await a.next('error')).code === 'bad-map' && room(code).mapId === 'forest');
   b.send({ t: 'again' }); await a.next('peer_again');
+  await sleep(400);
+  t('입장자가 먼저 준비해도 방장이 준비하기 전에는 시작하지 않는다', !a.has('start') && !b.has('start') && room(code).phase === 'result');
   a.send({ t: 'map', mapId: 'waterfall' });
   const [ma, mb] = await Promise.all([a.next('map'), b.next('map')]);
   t('방장이 맵을 바꾸면 두 사람 모두 알림', ma.mapId === 'waterfall' && mb.mapId === 'waterfall');
-  t('맵을 바꾸면 입장자의 준비는 풀리고 방장은 준비된 것으로 본다', room(code).again[0] === true && room(code).again[1] === false);
+  t('맵을 바꾸면 두 사람의 준비가 모두 풀린다', room(code).again[0] === false && room(code).again[1] === false);
   await sleep(300);
-  t('입장자가 다시 준비하기 전에는 시작하지 않는다', !a.has('start') && !b.has('start') && room(code).phase === 'result');
+  t('맵을 바꾼 뒤에도 둘 다 다시 준비하기 전에는 시작하지 않는다', !a.has('start') && !b.has('start') && room(code).phase === 'result');
+  a.send({ t: 'again' }); await b.next('peer_again'); await sleep(300);
+  t('방장만 준비한 상태에서는 시작하지 않는다', !a.has('start') && !b.has('start'));
   b.send({ t: 'again' });
   const [ra, rb] = await Promise.all([a.next('start', 4000), b.next('start', 4000)]);
-  t('입장자가 다시 준비하면 바뀐 맵으로 시작', ra.mapId === 'waterfall' && rb.mapId === 'waterfall' && ra.seed === rb.seed);
+  t('둘 다 준비 완료를 누르면 바뀐 맵으로 시작', ra.mapId === 'waterfall' && rb.mapId === 'waterfall' && ra.seed === rb.seed);
   a.send({ t: 'map', mapId: 'forest' }); await sleep(100);
   t('판 중에는 맵을 바꿀 수 없다', room(code).mapId === 'waterfall' && !b.has('map'));
   a.close(); b.close(); await sleep(100);
