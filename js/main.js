@@ -58,7 +58,7 @@ function hudHtml(p, isAi, isMe = false) {
   return `<div class="face face-p${p.id + 1}${out ? ' out' : ''}"></div>`
     + `<div class="info"><div class="hearts">${main}</div>`
     + `<div class="stats"><span><i class="ic ic-speed"></i><b>${p.speedLevel}</b></span><span><i class="ic ic-range"></i><b>${p.range}</b></span><span><i class="ic ic-bomb"></i><b>${p.maxBombs}</b></span></div></div>`
-    + (isAi ? '<b class="ai">AI</b>' : '')
+    + (isAi ? '<b class="ai">수련 상대</b>' : '')
     + (isMe ? '<b class="me">나</b>' : '');
 }
 
